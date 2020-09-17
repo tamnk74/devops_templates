@@ -1,0 +1,116 @@
+version: "3"
+
+networks:
+  frontend:
+    driver: ${NETWORKS_DRIVER}
+  backend:
+    driver: ${NETWORKS_DRIVER}
+
+services:
+  ### Workspace Utilities ##################################
+  php:
+    build:
+      context: ./php
+      args:
+        - PUID=${WORKSPACE_PUID}
+        - PGID=${WORKSPACE_PGID}
+        - CHROME_DRIVER_VERSION=${WORKSPACE_CHROME_DRIVER_VERSION}
+        - http_proxy
+        - https_proxy
+        - no_proxy
+    environment:
+      - DB_HOST=mysql
+    volumes:
+      - ${APP_CODE_PATH_HOST}/php:${APP_CODE_PATH_CONTAINER}${APP_CODE_CONTAINER_FLAG}
+    tty: true
+    networks:
+      - backend
+  ### Nodejs space
+  nodejs:
+    build:
+      context: ./nodejs
+      args:
+        - PUID=${NODESPACE_PUID}
+        - PGID=${NODESPACE_PGID}
+        - CHROME_DRIVER_VERSION=${WORKSPACE_CHROME_DRIVER_VERSION}
+        - http_proxy
+        - https_proxy
+        - no_proxy
+    volumes:
+      - ${APP_CODE_PATH_HOST}/nodejs:${APP_CODE_PATH_CONTAINER}${APP_CODE_CONTAINER_FLAG}
+    extra_hosts:
+      - "dockerhost:${DOCKER_HOST_IP}"
+    ports:
+      - "${NODESPACE_SSH_PORT}:22"
+    tty: true
+    environment:
+      - MONGODB_URI=mongodb://mongodb:27017/node-boilerplate
+      - REDIS_HOST=redis
+    networks:
+      - backend
+  ### Docker-in-Docker ################################################
+  # docker-in-docker:
+  #   image: docker:dind
+  #   privileged: true
+  #   volumes:
+  #     - ${APP_CODE_PATH_HOST}:${APP_CODE_PATH_CONTAINER}
+  #   expose:
+  #     - 2375
+  #   networks:
+  #     - backend
+  ### NGINX Server #########################################
+  nginx:
+    build:
+      context: ./nginx
+      args:
+        - CHANGE_SOURCE=${CHANGE_SOURCE}
+        - http_proxy
+        - https_proxy
+        - no_proxy
+    volumes:
+      - ${APP_CODE_PATH_HOST}/php:${APP_CODE_PATH_CONTAINER}${APP_CODE_CONTAINER_FLAG}
+      - ${NGINX_HOST_LOG_PATH}:/var/log/nginx
+      - ${NGINX_SITES_PATH}:/etc/nginx/sites-available
+      - ${NGINX_SSL_PATH}:/etc/nginx/ssl
+    ports:
+      - "${NGINX_HOST_HTTP_PORT}:80"
+      - "${NGINX_HOST_HTTPS_PORT}:443"
+      - "8080:8080"
+    networks:
+      - frontend
+      - backend
+  ### MySQL ################################################
+  mysql:
+    build:
+      context: ./mysql
+      args:
+        - MYSQL_VERSION=${MYSQL_VERSION}
+    environment:
+      - MYSQL_DATABASE=${MYSQL_DATABASE}
+      - MYSQL_USER=${MYSQL_USER}
+      - MYSQL_PASSWORD=${MYSQL_PASSWORD}
+      - MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD}
+      - TZ=${WORKSPACE_TIMEZONE}
+    volumes:
+      - ${DATA_PATH_HOST}/mysql:/var/lib/mysql
+      - ${MYSQL_ENTRYPOINT_INITDB}:/docker-entrypoint-initdb.d
+    ports:
+      - "${MYSQL_PORT}:3306"
+    networks:
+      - backend
+  mongodb:
+    image: mongo
+    container_name: mongodb
+    hostname: mongo
+    ports:
+      - 27017:27017
+    networks:
+      - backend
+  redis:
+    image: redis:alpine
+    container_name: redis
+    privileged: true
+    ports:
+      - 6379:6379
+    networks:
+      - backend
